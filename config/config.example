@@ -1,0 +1,26 @@
+# Example only. ./install.sh writes the real file to
+# ~/.config/quantus-idle/config with mode 0600.
+# Do not put a seed phrase in this file or in git.
+
+IDLE_START_MS=900000
+ACTIVITY_GRACE_MS=15000
+POLL_SEC=5
+HEARTBEAT_SEC=60
+
+NODE_NAME=my-desktop
+WORMHOLE_ADDRESS=
+INNER_HASH=
+CHAIN=mainnet
+MINER_LISTEN_PORT=9833
+CPU_WORKERS=0
+GPU_DEVICES=1
+USE_CUDA=1
+
+# Empty pins mean "whatever install recorded". Set both together.
+# Releases: https://github.com/Quantus-Network/chain/releases
+#           https://github.com/Quantus-Network/quantus-miner/releases
+NODE_VERSION=
+MINER_VERSION=
+
+# Optional override. Default is ~/.local/share/quantus-idle/binaries
+QUANTUS_BIN_DIR=

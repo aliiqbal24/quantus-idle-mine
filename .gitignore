@@ -1,0 +1,10 @@
+# Local runtime and secrets — never commit these.
+uploads/
+agent-tools/
+*.log
+*.pid
+mining.conf
+node_key.p2p
+.DS_Store
+__pycache__/
+*.pyc
