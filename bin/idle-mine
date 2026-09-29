@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# idle-mine: enable | disable | status | pause | resume
+set -euo pipefail
+
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+  _dir="$(cd "$(dirname "$_src")" && pwd)"
+  _src="$(readlink "$_src")"
+  [[ "$_src" != /* ]] && _src="${_dir}/${_src}"
+done
+APP_ROOT="$(cd "$(dirname "$_src")/.." && pwd)"
+unset _src _dir
+# shellcheck source=../lib/common.sh
+source "${APP_ROOT}/lib/common.sh"
+quantus_idle_init_paths
+# shellcheck source=../lib/idle.sh
+source "${APP_ROOT}/lib/idle.sh"
+
+usage() {
+  cat <<EOF
+Usage: idle-mine <enable|disable|status|pause|resume>
+
+  enable, resume   Turn on automatic idle mining
+  disable, pause   Turn off automatic idle mining and stop the miner and node
+  status           Show enabled flag, idle time, miner, node, and the user service
+
+Mining starts only after the desktop has been idle (default 15 minutes).
+Returning to the keyboard stops the miner after a short grace period.
+The node stays up until you pause or disable.
+
+Config: ${CONFIG_FILE}
+State:  ${STATE_DIR}
+EOF
+}
+
+systemd_state() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    printf 'systemd-not-installed'
+    return
+  fi
+  if systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    printf 'active'
+    return
+  fi
+  if systemctl --user is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
+    printf 'enabled-inactive'
+    return
+  fi
+  if [[ -f "${XDG_CONFIG_HOME}/systemd/user/${SERVICE_NAME}" ]]; then
+    printf 'installed-inactive'
+    return
+  fi
+  printf 'not-installed'
+}
+
+gpu_line() {
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+    nvidia-smi --query-gpu=name,temperature.gpu,power.draw,power.limit --format=csv,noheader 2>/dev/null \
+      | head -n 4 \
+      | sed 's/^/    /' || true
+    return
+  fi
+  printf '    unavailable\n'
+}
+
+cmd_status() {
+  local en idle svc miner_bit=0 node_bit=0 threshold grace
+  import_session_env || true
+  en="$(cfg_state_enabled)"
+  threshold="$(cfg_get IDLE_START_MS)"
+  grace="$(cfg_get ACTIVITY_GRACE_MS)"
+  threshold="${IDLE_START_MS:-${threshold:-900000}}"
+  grace="${ACTIVITY_GRACE_MS:-${grace:-15000}}"
+  if idle="$(get_idle_ms 2>/dev/null)"; then
+    :
+  else
+    idle=""
+  fi
+  if miner_running; then miner_bit=1; fi
+  if node_running; then node_bit=1; fi
+  svc="$(systemd_state)"
+
+  echo "quantus-idle-mine ${QUANTUS_IDLE_VERSION}"
+  echo "  enabled:     ${en}   (1 = auto-start when idle, 0 = off)"
+  echo "  systemd:     ${svc} (${SERVICE_NAME})"
+  echo "  threshold:   ${threshold} ms ($(ms_human "$threshold"))"
+  echo "  grace:       ${grace} ms ($(ms_human "$grace"))"
+  if [[ -n "$idle" ]]; then
+    echo "  idle_ms:     ${idle}  ($(ms_human "$idle"))"
+  else
+    echo "  idle_ms:     unavailable"
+    echo "               Need a graphical session plus Hyprland cursor,"
+    echo "               xprintidle, loginctl IdleHint, or /dev/input read access."
+  fi
+  echo "  miner:       ${miner_bit}"
+  echo "  node:        ${node_bit}"
+  echo "  gpu:"
+  gpu_line
+  echo "  config:      ${CONFIG_FILE}"
+  echo "  state:       ${STATE_FILE}"
+  echo "  log:         ${LOG_FILE}"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    local addr
+    addr="$(cfg_get WORMHOLE_ADDRESS)"
+    if [[ -n "$addr" ]]; then
+      echo "  rewards:     $(mask_middle "$addr")"
+    fi
+  fi
+  if [[ -f "$LOG_FILE" ]]; then
+    echo "  log_tail:"
+    tail -n 5 "$LOG_FILE" | sed 's/^/    /'
+  fi
+}
+
+cmd_enable() {
+  local threshold
+  quantus_idle_ensure_dirs
+  write_enabled_state 1
+  threshold="$(cfg_get IDLE_START_MS)"
+  threshold="${threshold:-900000}"
+  echo "Idle mining enabled. The GPU stays free until the desktop has been idle for $(ms_human "$threshold")."
+  echo "Coming back stops the miner after the grace period. The node stays warm until you pause."
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user start "$SERVICE_NAME" 2>/dev/null || true
+  fi
+  cmd_status
+}
+
+cmd_disable() {
+  quantus_idle_ensure_dirs
+  write_enabled_state 0
+  echo "Idle mining disabled. Stopping the miner and node."
+  if [[ -x "${APP_ROOT}/scripts/mine-off.sh" ]]; then
+    "${APP_ROOT}/scripts/mine-off.sh" || true
+  elif [[ -x "${APP_ROOT}/scripts/quantus-stack.sh" ]]; then
+    "${APP_ROOT}/scripts/quantus-stack.sh" stop || true
+  fi
+  cmd_status
+}
+
+case "${1:-status}" in
+  enable|resume) cmd_enable ;;
+  disable|pause) cmd_disable ;;
+  status|"") cmd_status ;;
+  -h|--help|help) usage ;;
+  *)
+    echo "Unknown command: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
