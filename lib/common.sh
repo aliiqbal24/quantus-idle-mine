@@ -88,8 +88,7 @@ cfg_set() {
   local key="$1" value="$2" tmp
   [[ "$key" =~ ^[A-Z0-9_]+$ ]] || die "Refusing to write unsafe config key"
   case "$value" in
-    *$'
-'*|*$''*) die "Refusing to write a multi-line config value for ${key}" ;;
+    *$\'\n\'*|*$\'\r\'*) die "Refusing to write a multi-line config value for ${key}" ;;
   esac
   mkdir -p "$CONFIG_DIR"
   touch "$CONFIG_FILE"
