@@ -1,0 +1,21 @@
+[Unit]
+Description=Quantus idle miner (start after keyboard and mouse are idle)
+After=default.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+UMask=0077
+ExecStart=%h/.local/share/quantus-idle/daemon/idle-mine-daemon.sh
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=8
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=XDG_CONFIG_HOME=%h/.config
+Environment=XDG_STATE_HOME=%h/.local/state
+Environment=XDG_DATA_HOME=%h/.local/share
+EnvironmentFile=-%h/.config/quantus-idle/daemon.env
+
+[Install]
+WantedBy=default.target
